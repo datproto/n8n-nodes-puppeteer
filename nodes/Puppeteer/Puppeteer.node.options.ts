@@ -547,7 +547,7 @@ export const nodeDescription: INodeTypeDescription = {
 					type: 'string',
 					required: false,
 					default: '',
-					description: 'The WebSocket URL of the browser to connect to. When configured, puppeteer will skip the browser launch and connect to the browser instance.',
+					description: 'The WebSocket URL of the browser to connect to. When configured, puppeteer will skip the browser launch and connect to the browser instance. Note: Launch arguments including proxy configuration will be ignored when using this option.',
 				},
 				{
 					displayName: 'Emulate Device',
@@ -802,7 +802,7 @@ export const nodeDescription: INodeTypeDescription = {
 					required: false,
 					default: '',
 					description:
-						'This tells Puppeteer to use a custom proxy configuration. Examples: localhost:8080, socks5://localhost:1080, etc.',
+						'Configure proxy server for browser requests. Supports HTTP, HTTPS, SOCKS4, and SOCKS5 proxies. Examples: "localhost:8080", "http://proxy.example.com:3128", "socks5://127.0.0.1:1080". Use "direct://" to disable proxy. Note: Only works with locally launched browsers, not when using Browser WebSocket Endpoint.',
 				},
 				{
 					displayName: 'Add Container Arguments',

@@ -13,7 +13,7 @@ import { makeResolverFromLegacyOptions, NodeVM } from '@n8n/vm2';
 import puppeteer from 'puppeteer-extra';
 import pluginStealth from 'puppeteer-extra-plugin-stealth';
 //@ts-ignore
-import pluginHumanTyping from 'puppeteer-extra-plugin-human-typing'; 
+import pluginHumanTyping from 'puppeteer-extra-plugin-human-typing';
 import {
 	type Browser,
 	type Device,
@@ -43,9 +43,9 @@ const CONTAINER_LAUNCH_ARGS = [
 export const vmResolver = makeResolverFromLegacyOptions({
 	external: external
 		? {
-				modules: external.split(','),
-				transitive: false,
-			}
+			modules: external.split(','),
+			transitive: false,
+		}
 		: false,
 	builtin: builtIn?.split(',') ?? [],
 });
@@ -185,7 +185,7 @@ async function runCustomScript(
 			: CODE_ENABLE_STDOUT === 'true'
 				? (...args: unknown[]) =>
 					console.log(`[Workflow "${this.getWorkflow().id}"][Node "${this.getNode().name}"]`, ...args)
-				: () => {},
+				: () => { },
 	);
 
 	try {
@@ -470,7 +470,7 @@ export class Puppeteer implements INodeType {
 		const browserWSEndpoint = options.browserWSEndpoint as string;
 		const stealth = options.stealth === true;
 		const humanTyping = options.humanTyping === true;
-		const humanTypingOptions =  {
+		const humanTypingOptions = {
 			keyboardLayout: "en",
 			...((options.humanTypingOptions as IDataObject) || {})
 		};
@@ -506,7 +506,32 @@ export class Puppeteer implements INodeType {
 
 		// More on proxying: https://www.chromium.org/developers/design-documents/network-settings
 		if (options.proxyServer) {
-			args.push(`--proxy-server=${options.proxyServer}`);
+			const proxyServer = options.proxyServer as string;
+
+			// Validate proxy server format
+			if (typeof proxyServer !== 'string' || proxyServer.trim() === '') {
+				throw new NodeOperationError(this.getNode(), 'Proxy server must be a non-empty string');
+			}
+
+			// Basic validation for common proxy formats
+			const trimmedProxy = proxyServer.trim();
+			const validProxyPatterns = [
+				/^https?:\/\/.+:\d+$/,           // http://host:port or https://host:port
+				/^socks[45]?:\/\/.+:\d+$/,       // socks://host:port, socks4://host:port, socks5://host:port
+				/^.+:\d+$/,                      // host:port (simple format)
+				/^direct:\/\/$/                  // direct:// (no proxy)
+			];
+
+			const isValidProxy = validProxyPatterns.some(pattern => pattern.test(trimmedProxy));
+			if (!isValidProxy) {
+				throw new NodeOperationError(this.getNode(),
+					`Invalid proxy server format: "${trimmedProxy}". ` +
+					'Expected formats: "host:port", "http://host:port", "socks5://host:port", or "direct://"'
+				);
+			}
+
+			args.push(`--proxy-server=${trimmedProxy}`);
+			console.log(`Puppeteer node: Using proxy server: ${trimmedProxy}`);
 		}
 
 		if (stealth) {
@@ -523,6 +548,12 @@ export class Puppeteer implements INodeType {
 		let browser: Browser;
 		try {
 			if (browserWSEndpoint) {
+				// Warn user if they're trying to use proxy with remote browser connection
+				if (options.proxyServer) {
+					console.warn('Puppeteer node: Proxy configuration is ignored when using Browser WebSocket Endpoint. ' +
+						'The proxy must be configured on the remote browser instance itself.');
+				}
+
 				browser = await puppeteer.connect({
 					browserWSEndpoint,
 					protocolTimeout,
@@ -536,7 +567,15 @@ export class Puppeteer implements INodeType {
 				});
 			}
 		} catch (error) {
-			throw new Error(`Failed to launch/connect to browser: ${(error as Error).message}`);
+			const errorMessage = (error as Error).message;
+
+			// Provide helpful error message for proxy-related failures
+			if (options.proxyServer && errorMessage.toLowerCase().includes('proxy')) {
+				throw new Error(`Failed to launch browser with proxy "${options.proxyServer}": ${errorMessage}. ` +
+					'Please verify the proxy server is accessible and the format is correct.');
+			}
+
+			throw new Error(`Failed to launch/connect to browser: ${errorMessage}`);
 		}
 
 		const processItem = async (
@@ -560,43 +599,43 @@ export class Puppeteer implements INodeType {
 						page,
 					);
 				}
-					const urlString = this.getNodeParameter('url', itemIndex) as string;
-					const queryParametersOptions = this.getNodeParameter(
-						'queryParameters',
-						itemIndex,
-						{},
-					) as IDataObject;
+				const urlString = this.getNodeParameter('url', itemIndex) as string;
+				const queryParametersOptions = this.getNodeParameter(
+					'queryParameters',
+					itemIndex,
+					{},
+				) as IDataObject;
 
-					const queryParameters = (queryParametersOptions.parameters as QueryParameter[]) || [];
-					let url: URL;
+				const queryParameters = (queryParametersOptions.parameters as QueryParameter[]) || [];
+				let url: URL;
 
-					try {
-						url = new URL(urlString);
-						for (const queryParameter of queryParameters) {
-							url.searchParams.append(queryParameter.name, queryParameter.value);
-						}
-					} catch (error) {
-						return handleError.call(
-							this,
-							new Error(`Invalid URL: ${urlString}`),
-							itemIndex,
-							urlString,
-							page,
-						);
+				try {
+					url = new URL(urlString);
+					for (const queryParameter of queryParameters) {
+						url.searchParams.append(queryParameter.name, queryParameter.value);
 					}
-
-					console.log(
-						`Processing ${itemIndex + 1} of ${items.length}: [${operation}]${device ? ` [${device}] ` : ' '}${url}`,
-					);
-
-					return await processPageOperation.call(
+				} catch (error) {
+					return handleError.call(
 						this,
-						operation,
-						url,
-						page,
+						new Error(`Invalid URL: ${urlString}`),
 						itemIndex,
-						options,
+						urlString,
+						page,
 					);
+				}
+
+				console.log(
+					`Processing ${itemIndex + 1} of ${items.length}: [${operation}]${device ? ` [${device}] ` : ' '}${url}`,
+				);
+
+				return await processPageOperation.call(
+					this,
+					operation,
+					url,
+					page,
+					itemIndex,
+					options,
+				);
 			} catch (error) {
 				return handleError.call(
 					this,
@@ -633,7 +672,7 @@ export class Puppeteer implements INodeType {
 						await browser.disconnect();
 					} else {
 						await browser.close();
-					}	
+					}
 				} catch (error) {
 					console.error('Error closing browser:', error);
 				}
